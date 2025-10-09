@@ -17,5 +17,5 @@ cd
 | tg-bot               | 1234 |
 
 ## TODO
-- [x] Собрать dockerfile
+- [ ] Собрать dockerfile
 - [ ] Собрать docker-compose.yaml
