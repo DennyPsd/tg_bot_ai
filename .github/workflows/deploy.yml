@@ -1,0 +1,37 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  APP_NAME: bot-tg          # ← замени на имя твоего бинарника
+  SERVER_PATH: /root/DennyPsd  # ← путь на сервере
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --bin ${{ env.APP_NAME }}
+
+      - name: Set up SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Copy binary to server
+        run: |
+          scp target/release/${{ env.APP_NAME }} \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.SERVER_PATH }}/
+
+      - name: Restart service
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "sudo systemctl restart ${{ env.APP_NAME }} && sudo systemctl status ${{ env.APP_NAME }}"
