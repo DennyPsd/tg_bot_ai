@@ -1,5 +1,8 @@
 use std::env;
+use std::sync::{Arc, Mutex};
 use teloxide::prelude::*;
+use teloxide::types::ChatId;
+
 use tracing::info;
 use tracing_subscriber;
 
@@ -18,15 +21,42 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     dotenvy::dotenv().ok();
-    let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
+    let bot_token = env::var("TG_TOKEN_TEST").expect("Токен бота не найден");
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели: {}", ai_token);
     let bot = Bot::new(bot_token);
 
+    let stickers = Arc::new(Mutex::new(Vec::<String>::new()));
+    {
+        let mut stickers = stickers.lock().unwrap();
+        stickers.push(
+            "CAACAgIAAxkBAAE8Pkpo57Jl9ZyDCcpAsctvnyZMUIzQewACKoMAAoMIeEmxqZaLd0ZwFDYE".to_string(),
+        );
+        stickers.push(
+            "CAACAgIAAxkBAAE8Pjxo57F6ZPf1mw8YUT0D0EzGmEvs9QACt3YAAiDfeEkfyzgh-xukJzYE".to_string(),
+        );
+        stickers.push(
+            "CAACAgIAAxkBAAE8PjVo57EKBtaS6gom3vpyEQ_UQz1oNgACGT8AAhwAAXFLdxvIwCabAAG-NgQ"
+                .to_string(),
+        );
+        //info!("Добавлены хардкодные стикеры: {:?}", stickers_list);
+    }
+
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let ai_token = ai_token.clone(); // Клонируем для каждого сообщения
-
+        //Разобраться как сделать ввод в массив. А то он пустой в /stickers
+        let stickers = Arc::clone(&stickers);
         async move {
+            if let Some(sticker) = msg.sticker() {
+                let file_id = sticker.file.id.to_string();
+                {
+                    let mut stickers_list = stickers.lock().unwrap();
+                    stickers_list.push(file_id);
+                    info!("{:?}", stickers_list);
+                }
+                bot.send_message(msg.chat.id, "✅ Стикер добавлен!").await?;
+            }
+
             if let Some(text) = msg.text() {
                 match text.to_lowercase().as_str() {
                     "/casino" => {
@@ -54,36 +84,80 @@ async fn main() {
                             .emoji(teloxide::types::DiceEmoji::Dice)
                             .await?;
                     }
+                    "/sticker" => {
+                        let sticker_to_send = {
+                            let list = stickers.lock().unwrap();
+                            if list.is_empty() {
+                                None
+                            } else {
+                                let idx = rand::random_range(0..list.len());
+                                Some(list[idx].clone())
+                            }
+                        };
+
+                        if let Some(sticker_id) = sticker_to_send {
+                            bot.send_sticker(
+                                msg.chat.id,
+                                teloxide::types::InputFile::file_id(sticker_id.clone().into()),
+                            )
+                            .await?;
+                        }
+                    }
                     "/help" | "/start" => {
                         bot.send_message(
                             msg.chat.id,
-                            "Краткая инструкция: ты можешь проверить себя на удачу!\n\
-                    Для этого выбери определенную команду: \n\
-                    /generate - Для генерации текста для КН \n\
-                    /casino - Для прокрутки дэбчика \n\
-                    /darts - Для броска дротика \n\
-                    /dice - Для броска кубика",
+                            "Краткая инструкция: \n\
+                            Бота можно для обращения к AI (но пока в рамках одного сообщения)\n\
+                            Для этого просто напиши сообщение! \n\
+                            \n\
+                            Также есть определенные команду: \n\
+                            /generate - Для генерации текста для КН \n\
+                            /casino - Для прокрутки казино \n\
+                            /darts - Для броска дротика \n\
+                            /dice - Для броска кубика",
                         )
                         .await?;
                     }
                     "/generate" => {
                         bot.send_message(msg.chat.id, "Генерирую текст через AI...")
                             .await?;
-                        match generate_kn(&ai_token).await {
+                        match generate_kn(&ai_token, PROMPT.to_string()).await {
                             Ok(response) => {
                                 bot.send_message(msg.chat.id, response).await?;
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
-                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст 😢")
+                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст")
                                     .await?;
                             }
                         }
                     }
 
                     _ => {
-                        bot.send_message(msg.chat.id, "Напиши /help для инструкции")
+                        //bot.send_message(msg.chat.id, "Напиши /help для инструкции").await?;
+                        //info!("{}", msg.chat.id);
+                        bot.send_message(
+                            ChatId(465320725),
+                            format!(
+                                "{}: {}",
+                                msg.from().unwrap().first_name,
+                                msg.text().unwrap().to_string()
+                            ),
+                        )
+                        .await?;
+
+                        bot.send_message(msg.chat.id, "Делаю запрос в AI...")
                             .await?;
+                        match generate_kn(&ai_token, msg.text().unwrap().to_string()).await {
+                            Ok(response) => {
+                                bot.send_message(msg.chat.id, response).await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("Ошибка AI: {}", e);
+                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст")
+                                    .await?;
+                            }
+                        }
                     }
                 }
             }
@@ -94,13 +168,16 @@ async fn main() {
     .await;
 }
 
-async fn generate_kn(ai_token: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn generate_kn(
+    ai_token: &str,
+    user_msg: String,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::new();
 
     let request_body = serde_json::json!({
         "model": "qwen/qwen3-8b:free",
         "messages": [
-            { "role": "user", "content": PROMPT }
+            { "role": "user", "content": user_msg }
         ],
         "temperature": 0.7
     });
