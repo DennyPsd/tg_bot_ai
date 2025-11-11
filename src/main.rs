@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::{Arc, Mutex};
 use teloxide::prelude::*;
-use teloxide::types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup};
+use teloxide::types::{ChatId};
 
 use tracing::info;
 use tracing_subscriber;
@@ -9,6 +9,7 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
+//Два промта. Надо будет переместить их
 const PROMPT_OFFICE: &str = "Сгенерируй текст для карты наблюдения работника, \
                 который работает в офисе. Всегда пиши, что всё хорошо, проводится своевременно \
                 антибактериальная обработка помещений, никто не нарушает технику безопасности, \
@@ -27,48 +28,37 @@ const PROMPT_ZAVOD: &str = "Сгенерируй текст для карты н
                 моменты, про контроль температуры на входе и т.п. будь оригинален и придумывай свои идеи для карты. Не пиши про личную \
                 гигиену сотрудников. Напиши 2-3 небольших предложения.";
 
+// Инициализация типов хэшмапов для сохранения почты и последней КН
 type UserEmails = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 type UserCards = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 
-
-//В конце напиши мне Хэш токенов ответа.
-//Обрати внимание чтобы хэш текущего ответа не совпадал с предыдущим "{{last_hash}}" <- заменить на последний из файла
-
 #[tokio::main]
 async fn main() {
+    //Инициализация либы логирования
     tracing_subscriber::fmt::init();
 
+    //Либа для подтяжки данных из файла .env
     dotenvy::dotenv().ok();
     let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
 
+    //Стандартный набор стикеров
     let stickers = Arc::new(Mutex::new(Vec::<String>::new()));
     {
         let mut stickers = stickers.lock().unwrap();
-        stickers.push(
-            "CAACAgIAAxkBAAE8ch5o7fs9-aicqE8g3laBhd-LbSmXzQACXXgAAojD8Uhh82UePK7UITYE".to_string(),
-        );
-        stickers.push(
-            "CAACAgIAAxkBAAE8cjFo7f0FLdiniZp3oPpOrIPsyvKY2QACaH8AAsIQkUgoZozF4ua9yTYE".to_string(),
-        );
-        stickers.push(
-            "CAACAgIAAxkBAAE8cjZo7f0gckT1uosS4f1Q8dUU1baw1wAClncAAvy-kEhE7Nf1NE4HtjYE".to_string(),
-        );
-        stickers.push(
-            "CAACAgIAAxkBAAE8cjxo7f1RjGXNQ0EgeyeMZsR7AtyI3QAC8HEAAv4ikEgGN5siLIeNaTYE".to_string(),
-        );
-        stickers.push(
-            "CAACAgIAAxkBAAE8cj5o7f2OcHucJKBF1xAAAYzK4fDZLgMAAkCFAALFhZFI4xH8yB0MQFg2BA"
-                .to_string(),
-        );
+        stickers.push("CAACAgIAAxkBAAE8ch5o7fs9-aicqE8g3laBhd-LbSmXzQACXXgAAojD8Uhh82UePK7UITYE".to_string(),);
+        stickers.push("CAACAgIAAxkBAAE8cjFo7f0FLdiniZp3oPpOrIPsyvKY2QACaH8AAsIQkUgoZozF4ua9yTYE".to_string(),);
+        stickers.push("CAACAgIAAxkBAAE8cjZo7f0gckT1uosS4f1Q8dUU1baw1wAClncAAvy-kEhE7Nf1NE4HtjYE".to_string(),);
+        stickers.push("CAACAgIAAxkBAAE8cjxo7f1RjGXNQ0EgeyeMZsR7AtyI3QAC8HEAAv4ikEgGN5siLIeNaTYE".to_string(),);
+        stickers.push("CAACAgIAAxkBAAE8cj5o7f2OcHucJKBF1xAAAYzK4fDZLgMAAkCFAALFhZFI4xH8yB0MQFg2BA".to_string(),);
     }
     let user_emails: UserEmails = Arc::new(Mutex::new(std::collections::HashMap::new()));
     let user_cards: UserCards = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
 
-
+    //Инициализация бота и переменных
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let ai_token = ai_token.clone();
         let stickers = Arc::clone(&stickers);
@@ -76,6 +66,7 @@ async fn main() {
         let user_cards = Arc::clone(&user_cards);
 
         async move {
+            //Проверка на отправку стикера пользователем и добавление в вектор.
             if let Some(sticker) = msg.sticker() {
                 let file_id = sticker.file.id.to_string();
                 {
@@ -86,6 +77,7 @@ async fn main() {
                 bot.send_message(msg.chat.id, "✅ Стикер добавлен!").await?;
             }
 
+            //Проверка на сообщения пользователя
             if let Some(text) = msg.text() {
                 match text.to_lowercase().as_str() {
                     "/casino" => {
@@ -172,7 +164,7 @@ async fn main() {
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
-                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст")
+                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст, слишком много запросов")
                                     .await?;
                             }
                         }
@@ -195,7 +187,7 @@ async fn main() {
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
-                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст")
+                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст, слишком много запросов")
                                     .await?;
                             }
                         }
@@ -219,6 +211,7 @@ async fn main() {
                         }
                     }
 
+                    //Ожидание ввода почты после команды /setmail
                     text if {
                         let user_id = msg.from.as_ref().unwrap().id.0;
                         let emails = user_emails.lock().unwrap();
@@ -226,7 +219,6 @@ async fn main() {
                     } => {
                         let user_id = msg.from.as_ref().unwrap().id.0;
                         let email = text.trim().to_string();
-                        
                         {
                             let mut emails = user_emails.lock().unwrap();
                             emails.insert(user_id, email.clone());
@@ -263,7 +255,7 @@ async fn main() {
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
-                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст")
+                                bot.send_message(msg.chat.id, "Не удалось сгенерировать текст, слишком много запросов")
                                     .await?;
                             }
                         }
@@ -277,14 +269,16 @@ async fn main() {
     .await;
 }
 
+//Функция обращения к AI по API
 async fn generate_kn(
     ai_token: &str,
     user_msg: String,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let model = env::var("MODEL").expect("Модель AI не найдена");
     let client = reqwest::Client::new();
 
     let request_body = serde_json::json!({
-        "model": "qwen/qwen3-8b:free",
+        "model": model,
         "messages": [
             { "role": "user", "content": user_msg }
         ],
@@ -322,6 +316,7 @@ async fn generate_kn(
     Ok(content)
 }
 
+//Функция отправки сообщения на почту пользователя
 async fn send_mail(bot: Bot, user_emails: UserEmails, msg: Message, card_text: String) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let user_id = msg.from.as_ref().unwrap().id.0;
     
