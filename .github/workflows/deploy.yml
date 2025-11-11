@@ -20,16 +20,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Создаём .env файл на runner-машине до сборки
-      - name: Create .env file locally
-        run: |
-          cat > .env << "EOF"
-          API_TOKEN=${{ secrets.API_TOKEN }}
-          MODEL=${{ secrets.MODEL }}
-          PASS_GM=${{ secrets.PASS_GM }}
-          TG_TOKEN=${{ secrets.TG_TOKEN }}
-          EOF
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -46,9 +36,14 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      # Собираем бинарник с подставленными переменными окружения
+      # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary with env
-        run: dotenv -e .env -- cargo build --release --locked
+        run: |
+          export API_TOKEN=${{ secrets.API_TOKEN }}
+          export MODEL=${{ secrets.MODEL }}
+          export PASS_GM=${{ secrets.PASS_GM }}
+          export TG_TOKEN=${{ secrets.TG_TOKEN }}
+          cargo build --release --locked
 
       # Проверяем, что бинарник действительно появился
       - name: Check binary
