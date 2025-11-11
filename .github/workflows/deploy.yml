@@ -13,7 +13,7 @@ env:
   API_TOKEN: ${{ secrets.API_TOKEN }}
   MODEL: ${{ secrets.MODEL }}
   PASS_GM: ${{ secrets.PASS_GM }}
-  TG_TOKEN: ${{ env.TG_TOKEN }}
+  TG_TOKEN: $TG_TOKEN
   #TG_TOKEN: dinis_pituh
   TARGET_DIR: /root/deployment/bot_tg  
 
