@@ -9,6 +9,7 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
+//Денис хороший мальчик
 //Два промта. Надо будет переместить их
 const PROMPT_OFFICE: &str = "Сгенерируй текст для карты наблюдения работника, \
                 который работает в офисе. Всегда пиши, что всё хорошо, проводится своевременно \
