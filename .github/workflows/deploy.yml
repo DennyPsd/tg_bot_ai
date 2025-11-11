@@ -1,37 +1,75 @@
-name: Deploy to Server
+name: Deploy to VPS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main  # или другая ветка, на которой вы хотите запускать деплой
 
 env:
-  APP_NAME: bot-tg          # ← замени на имя твоего бинарника
-  SERVER_PATH: /root/DennyPsd  # ← путь на сервере
+  CARGO_TERM_COLOR: always
+  APP_NAME: bot_tg
+  VPS_HOST: ${{ secrets.VPS_HOST }}
+  VPS_USER: ${{ secrets.VPS_USER }}
+  VPS_PORT: ${{ secrets.VPS_PORT }}  # Необязательно, по умолчанию 22
+  TARGET_DIR: /root/deployment/bot_tg
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build release binary
-        run: cargo build --release --bin ${{ env.APP_NAME }}
+        run: cargo build --release --locked
 
-      - name: Set up SSH key
-        uses: webfactory/ssh-agent@v0.9.0
+      # Проверяем, что бинарник действительно появился
+      - name: Check binary
+        run: |
+          ls -la target/release/
+          if [ ! -f target/release/${{ env.APP_NAME }} ]; then
+            echo "Binary ${{ env.APP_NAME }} not found!"
+            exit 1
+          fi
+
+      # Устанавливаем SSH-ключи
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.8.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
-      - name: Copy binary to server
+      # Копируем бинарник на VPS
+      - name: Copy binary to VPS
         run: |
-          scp target/release/${{ env.APP_NAME }} \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ env.SERVER_PATH }}/
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'mkdir -p ${{ env.TARGET_DIR }}'
+          scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
+            target/release/${{ env.APP_NAME }} \
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app
 
-      - name: Restart service
+      # Опционально: перезапускаем systemd-сервис
+      - name: Restart service on VPS
         run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "sudo systemctl restart ${{ env.APP_NAME }} && sudo systemctl status ${{ env.APP_NAME }}"
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'sudo systemctl stop ${{ env.APP_NAME }}.service || true'
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'sudo cp ${{ env.TARGET_DIR }}/app /usr/local/bin/${{ env.APP_NAME }}'
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'sudo systemctl start ${{ env.APP_NAME }}.service'
