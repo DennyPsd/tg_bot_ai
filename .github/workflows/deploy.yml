@@ -10,8 +10,12 @@ env:
   APP_NAME: bot_tg
   VPS_HOST: ${{ secrets.VPS_HOST }}
   VPS_USER: ${{ secrets.VPS_USER }}
-  VPS_PORT: ${{ secrets.VPS_PORT }}  # Необязательно, по умолчанию 22
+  VPS_PORT: ${{ secrets.VPS_PORT }}
   TARGET_DIR: /root/deployment/bot_tg
+  TG_TOKEN: ${{ secrets.TG_TOKEN }}
+  API_TOKEN: ${{ secrets.API_TOKEN}}
+  MODEL: ${{ secrets.MODEL }}
+  PASS_GM: ${{ secrets.PASS_GM }}
 
 jobs:
   build-and-deploy:
