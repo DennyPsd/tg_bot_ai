@@ -45,6 +45,7 @@ jobs:
           PASS_GM=${{ secrets.PASS_GM }}
           TG_TOKEN=${{ secrets.TG_TOKEN }}
           EOF
+          ls
           cargo build --release --locked
 
       # Проверяем, что бинарник действительно появился
