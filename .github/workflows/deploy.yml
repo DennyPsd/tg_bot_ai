@@ -23,12 +23,13 @@ jobs:
 
       # Создаём .env файл на runner-машине до сборки
       - name: Create .env file locally
-      run: |
-        cat > .env << "EOF"
-        API_TOKEN=${{ secrets.API_TOKEN }}
-        MODEL=${{ secrets.MODEL }}
-        PASS_GM=${{ secrets.PASS_GM }}
-        TG_TOKEN=${{ secrets.TG_TOKEN }}
+        run: |
+          cat > .env << "EOF"
+          API_TOKEN=${{ secrets.API_TOKEN }}
+          MODEL=${{ secrets.MODEL }}
+          PASS_GM=${{ secrets.PASS_GM }}
+          TG_TOKEN=${{ secrets.TG_TOKEN }}
+          EOF
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
