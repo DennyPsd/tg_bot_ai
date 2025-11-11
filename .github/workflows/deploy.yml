@@ -39,10 +39,12 @@ jobs:
       # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary with env
         run: |
-          export API_TOKEN=${{ secrets.API_TOKEN }}
-          export MODEL=${{ secrets.MODEL }}
-          export PASS_GM=${{ secrets.PASS_GM }}
-          export TG_TOKEN=${{ secrets.TG_TOKEN }}
+          cat > .env << "EOF"
+          API_TOKEN=${{ secrets.API_TOKEN }}
+          MODEL=${{ secrets.MODEL }}
+          PASS_GM=${{ secrets.PASS_GM }}
+          TG_TOKEN=${{ secrets.TG_TOKEN }}
+          EOF
           cargo build --release --locked
 
       # Проверяем, что бинарник действительно появился
