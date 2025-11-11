@@ -43,6 +43,11 @@ jobs:
 
       # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary
+        env:
+          API_TOKEN: ${{ secrets.API_TOKEN }}
+          MODEL: ${{ secrets.MODEL }}
+          PASS_GM: ${{ secrets.PASS_GM }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
         run: |        
           cargo build --release --locked
 
