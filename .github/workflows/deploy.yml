@@ -55,6 +55,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
+      - name: Debug
+        run: |
+          echo "VPS_HOST: ${{ env.VPS_HOST }}"
+          echo "VPS_USER: ${{ env.VPS_USER }}"
+
       # Копируем бинарник на VPS
       - name: Copy binary to VPS
         run: |
