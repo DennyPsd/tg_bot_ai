@@ -62,6 +62,7 @@ jobs:
             'mkdir -p ${{ env.TARGET_DIR }}'
           scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
             target/release/${{ env.APP_NAME }} \
+            -o UserKnownHostsFile=/dev/null \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app \
           'echo -e "TG_TOKEN=${{ secrets.TG_TOKEN }}\nAPI_TOKEN=${{ secrets.API_TOKEN }}\nMODEL=${{ secrets.MODEL }}\nPASS_GM=${{ secrets.PASS_GM }}" > ${{ env.TARGET_DIR }}/.env'
 
