@@ -21,6 +21,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Создаём .env файл на runner-машине до сборки
+      - name: Create .env file locally
+      run: |
+        cat > .env << "EOF"
+        DATABASE_URL=${{ secrets.DATABASE_URL }}
+        API_KEY=${{ secrets.API_KEY }}
+        JWT_SECRET=${{ secrets.JWT_SECRET }}
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -37,8 +45,16 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --locked
+      # Устанавливаем dotenv-cli для загрузки .env в окружение
+      - name: Install dotenv-cli
+        run: npm install -g dotenv-cli
+
+      # Собираем бинарник с подставленными переменными окружения
+      - name: Build release binary with env
+        run: dotenv -e .env -- cargo build --release --locked
+
+      #- name: Build release binary
+      #  run: cargo build --release --locked
 
       # Проверяем, что бинарник действительно появился
       - name: Check binary
@@ -55,21 +71,13 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
-      - name: Debug
-        run: |
-          echo "VPS_HOST: ${{ env.VPS_HOST }}"
-          echo "VPS_USER: ${{ env.VPS_USER }}"
-
       # Копируем бинарник на VPS
       - name: Copy binary to VPS
         run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            'mkdir -p ${{ env.TARGET_DIR }}'
           scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
-            target/release/${{ env.APP_NAME }} \
             -o UserKnownHostsFile=/dev/null \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app \
-          'echo -e "TG_TOKEN=${{ secrets.TG_TOKEN }}\nAPI_TOKEN=${{ secrets.API_TOKEN }}\nMODEL=${{ secrets.MODEL }}\nPASS_GM=${{ secrets.PASS_GM }}" > ${{ env.TARGET_DIR }}/.env'
+            target/release/${{ env.APP_NAME }} \
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app
 
 
       # Опционально: перезапускаем systemd-сервис
