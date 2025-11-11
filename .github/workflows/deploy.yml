@@ -11,11 +11,7 @@ env:
   VPS_HOST: ${{ secrets.VPS_HOST }}
   VPS_USER: ${{ secrets.VPS_USER }}
   VPS_PORT: ${{ secrets.VPS_PORT }}
-  TARGET_DIR: /root/deployment/bot_tg
-  TG_TOKEN: ${{ secrets.TG_TOKEN }}
-  API_TOKEN: ${{ secrets.API_TOKEN}}
-  MODEL: ${{ secrets.MODEL }}
-  PASS_GM: ${{ secrets.PASS_GM }}
+  TARGET_DIR: /root/deployment/bot_tg  
 
 jobs:
   build-and-deploy:
@@ -58,6 +54,11 @@ jobs:
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      - name: Create .env file on VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'echo -e "TG_TOKEN=${{ secrets.TG_TOKEN }}\nAPI_TOKEN=${{ secrets.API_TOKEN }}\nMODEL=${{ secrets.MODEL }}\nPASS_GM=${{ secrets.PASS_GM }}" > ${{ env.TARGET_DIR }}/.env'
 
       # Копируем бинарник на VPS
       - name: Copy binary to VPS
