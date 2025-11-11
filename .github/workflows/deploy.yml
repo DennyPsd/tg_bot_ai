@@ -3,8 +3,7 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - master  # или другая ветка, на которой вы хотите запускать деплой
-
+      - master
 env:
   CARGO_TERM_COLOR: always
   APP_NAME: bot_tg
@@ -46,10 +45,6 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      # Устанавливаем dotenv-cli для загрузки .env в окружение
-      - name: Install dotenv-cli
-        run: npm install -g dotenv-cli
 
       # Собираем бинарник с подставленными переменными окружения
       - name: Build release binary with env
