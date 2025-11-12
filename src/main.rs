@@ -59,7 +59,7 @@ async fn main() {
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
     // + ПРИКОЛЫ ФАЗИЗА
-    let mut client = SumServiceClient::connect("http://[::1]:50051").await?;
+    let mut client = SumServiceClient::connect("http://127.0.0.1:50051").await?;
     // - ПРИКОЛЫ ФАЗИЗА
 
     //Стандартный набор стикеров
