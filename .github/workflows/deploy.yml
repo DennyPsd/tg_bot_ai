@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - master
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      
 env:
   CARGO_TERM_COLOR: always
   APP_NAME: bot_tg
@@ -14,11 +26,10 @@ env:
   MODEL: ${{ secrets.MODEL }}
   PASS_GM: ${{ secrets.PASS_GM }}
   TG_TOKEN: ${{ secrets.TG_TOKEN }}
-  #TG_TOKEN: dinis_pituh
   TARGET_DIR: /root/deployment/bot_tg  
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -41,17 +52,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary
-        env:
-          API_TOKEN: ${{ secrets.API_TOKEN }}
-          MODEL: ${{ secrets.MODEL }}
-          PASS_GM: ${{ secrets.PASS_GM }}
-          TG_TOKEN: dinis_pituh
         run: |        
           cargo build --release --locked
 
-      # Проверяем, что бинарник действительно появился
       - name: Check binary
         run: |
           ls -la target/release/
@@ -59,14 +63,22 @@ jobs:
             echo "Binary ${{ env.APP_NAME }} not found!"
             exit 1
           fi
-
-      # Устанавливаем SSH-ключи
+  
       - name: Setup SSH key
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
-      # Копируем бинарник на VPS
+      - name: Create .env file on VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'mkdir -p ${{ env.TARGET_DIR }} && cat > ${{ env.TARGET_DIR }}/.env << "EOF"
+          TG_TOKEN=${{ secrets.TG_TOKEN }}
+          API_TOKEN=${{ secrets.API_TOKEN }}
+          MODEL=${{ secrets.MODEL }}
+          PASS_GM=${{ secrets.PASS_GM }}
+          EOF'
+
       - name: Copy binary to VPS
         run: |
           scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
@@ -75,7 +87,6 @@ jobs:
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app
 
 
-      # Опционально: перезапускаем systemd-сервис
       - name: Restart service on VPS
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
