@@ -9,6 +9,16 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
+// + ПРИКОЛЫ ФАЗИЗА
+use tonic::{Request, TransportError};
+use tokio;
+use sum::{sum_service_client::SumServiceClient, SumRequest};
+
+pub mod sum {
+    tonic::include_proto!("sum"); // Импортирует сгенерированные файлы
+}
+// - ПРИКОЛЫ ФАЗИЗА
+
 //Денис хороший мальчик
 //Наверное...
 //Это кстати посхалко девопса))
@@ -48,6 +58,9 @@ async fn main() {
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
+    // + ПРИКОЛЫ ФАЗИЗА
+    let mut client = SumServiceClient::connect("http://[::1]:50051").await?;
+    // - ПРИКОЛЫ ФАЗИЗА
 
     //Стандартный набор стикеров
     let stickers = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -214,6 +227,11 @@ async fn main() {
                         } else {
                             bot.send_message(msg.chat.id, "Сначала сгенерируйте карту наблюдения").await?;
                         }
+                    }
+                    "/grpc" => {
+                        let request = Request::new(SumRequest { a: 1, b: 7 });
+                        let response = client.sum(request).await?;
+                        bot.send_message(msg.chat.id, "Писюн диниса = " + response + " см").await?;
                     }
 
                     //Ожидание ввода почты после команды /setmail
