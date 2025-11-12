@@ -43,7 +43,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     //Либа для подтяжки данных из файла .env
-    //dotenvy::dotenv().ok();
+    dotenvy::dotenv().ok();
     let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели загружен");
