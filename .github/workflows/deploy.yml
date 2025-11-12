@@ -42,11 +42,6 @@ jobs:
 
       # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary
-        env:
-          API_TOKEN: ${{ secrets.API_TOKEN }}
-          MODEL: ${{ secrets.MODEL }}
-          PASS_GM: ${{ secrets.PASS_GM }}
-          TG_TOKEN: dinis_pituh
         run: |        
           cargo build --release --locked
 
@@ -73,7 +68,6 @@ jobs:
           API_TOKEN=${{ secrets.API_TOKEN }}
           MODEL=${{ secrets.MODEL }}
           PASS_GM=${{ secrets.PASS_GM }}
-          # Добавьте другие секреты по необходимости
           EOF'
 
       # Копируем бинарник на VPS
