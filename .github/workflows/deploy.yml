@@ -4,9 +4,18 @@ on:
   push:
     branches:
       - master
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   pull_request:
     branches:
       - master
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      
 env:
   CARGO_TERM_COLOR: always
   APP_NAME: bot_tg
