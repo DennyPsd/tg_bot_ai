@@ -3,7 +3,10 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - feature/cicd
+      - master
+  pull_requests:
+    branches:
+      - master
 env:
   CARGO_TERM_COLOR: always
   APP_NAME: bot_tg
@@ -17,7 +20,7 @@ env:
   TARGET_DIR: /root/deployment/bot_tg  
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -40,12 +43,10 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      # Экспортируем переменные окружения и запускаем сборку
       - name: Build release binary
         run: |        
           cargo build --release --locked
 
-      # Проверяем, что бинарник действительно появился
       - name: Check binary
         run: |
           ls -la target/release/
@@ -53,8 +54,7 @@ jobs:
             echo "Binary ${{ env.APP_NAME }} not found!"
             exit 1
           fi
-
-      # Устанавливаем SSH-ключи
+  
       - name: Setup SSH key
         uses: webfactory/ssh-agent@v0.8.0
         with:
@@ -70,7 +70,6 @@ jobs:
           PASS_GM=${{ secrets.PASS_GM }}
           EOF'
 
-      # Копируем бинарник на VPS
       - name: Copy binary to VPS
         run: |
           scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
@@ -79,7 +78,6 @@ jobs:
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app
 
 
-      # Опционально: перезапускаем systemd-сервис
       - name: Restart service on VPS
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
