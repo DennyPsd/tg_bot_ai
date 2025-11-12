@@ -59,7 +59,14 @@ async fn main() {
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
     // + ПРИКОЛЫ ФАЗИЗА
-    let mut client = SumServiceClient::connect("http://127.0.0.1:50051").await;
+    let mut connection = SumServiceClient::connect("http://127.0.0.1:50051").await;
+    let mut client = match connection {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to connect to gRPC server: {}", e);
+            return Ok(());
+        }
+    }
     // - ПРИКОЛЫ ФАЗИЗА
 
     //Стандартный набор стикеров
@@ -228,9 +235,11 @@ async fn main() {
                             bot.send_message(msg.chat.id, "Сначала сгенерируйте карту наблюдения").await?;
                         }
                     }
+                    // Приколы ФаЗиЗа
                     "/grpc" => {
                         let request = Request::new(SumRequest { a: 1, b: 7 });
-                        match client.sum(request).await{
+                        match client.sum(request).await {
+                            
                             Ok(response) => {
                                 let result = response.into_inner().result;                                               
                                 bot.send_message(msg.chat.id, format!("Писюн диниса = {} см", result)).await?;
