@@ -48,7 +48,7 @@ type UserEmails = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 type UserCards = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
     //Инициализация либы логирования
     tracing_subscriber::fmt::init();
 
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
     // + ПРИКОЛЫ ФАЗИЗА
-    let mut client = SumServiceClient::connect("http://127.0.0.1:50051").await?;
+    let mut client = SumServiceClient::connect("http://127.0.0.1:50051").await;
     // - ПРИКОЛЫ ФАЗИЗА
 
     //Стандартный набор стикеров
@@ -236,7 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 bot.send_message(msg.chat.id, format!("Писюн диниса = {} см", result)).await?;
                             }
                             Err(e) => {
-                                log::warn!("gRPC error: {}", e)
+                                log::warn!("gRPC error: {}", e);
                                 bot.send_message(msg.chat.id, "Ошибка на сервере").await?;
                             }
                         }                        
