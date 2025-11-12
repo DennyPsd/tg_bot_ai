@@ -6,8 +6,8 @@
 
 ```bash
 git clone 
-cd
-// compile //   
+cd tg_bot_ai
+cargo build --release
 ```
 
 ## Используемые порты
