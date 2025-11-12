@@ -38,8 +38,6 @@ jobs:
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
-        with:        
-          version: "latest"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
