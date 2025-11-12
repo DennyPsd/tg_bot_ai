@@ -230,7 +230,7 @@ async fn main() {
                     }
                     "/grpc" => {
                         let request = Request::new(SumRequest { a: 1, b: 7 });
-                        match client.sum(request).await{
+                        match client.into_iter().sum(request).await{
                             Ok(response) => {
                                 let result = response.into_inner().result;                                               
                                 bot.send_message(msg.chat.id, format!("Писюн диниса = {} см", result)).await?;
