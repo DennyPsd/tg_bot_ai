@@ -10,7 +10,7 @@ use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
 // + ПРИКОЛЫ ФАЗИЗА
-use tonic::{Request, TransportError};
+use tonic::Request;
 use tokio;
 use sum::{sum_service_client::SumServiceClient, SumRequest};
 
@@ -48,7 +48,7 @@ type UserEmails = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 type UserCards = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //Инициализация либы логирования
     tracing_subscriber::fmt::init();
 
@@ -230,8 +230,16 @@ async fn main() {
                     }
                     "/grpc" => {
                         let request = Request::new(SumRequest { a: 1, b: 7 });
-                        let response = client.sum(request).await?;
-                        bot.send_message(msg.chat.id, "Писюн диниса = " + response + " см").await?;
+                        match client.sum(request).await{
+                            Ok(response) => {
+                                let result = response.into_inner().result;                                               
+                                bot.send_message(msg.chat.id, format!("Писюн диниса = {} см", result)).await?;
+                            }
+                            Err(e) => {
+                                log::warn!("gRPC error: {}", e)
+                                bot.send_message(msg.chat.id, "Ошибка на сервере").await?;
+                            }
+                        }                        
                     }
 
                     //Ожидание ввода почты после команды /setmail
