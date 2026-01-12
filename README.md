@@ -16,7 +16,6 @@ cargo build --release
 |----------------------|------|
 | tg-bot               | 1234 |
 
-
 ## TODO
 - [x] Настроить CI/CD -- Deploy на VPS
 - [ ] Собрать dockerfile
