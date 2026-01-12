@@ -38,6 +38,7 @@ async fn main() {
     //Инициализация либы логирования
     tracing_subscriber::fmt::init();
 
+    
     //Либа для подтяжки данных из файла .env
     //dotenvy::dotenv().ok();
     let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
