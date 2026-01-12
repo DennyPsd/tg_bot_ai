@@ -72,10 +72,10 @@ async fn main() {
                 let file_id = sticker.file.id.to_string();
                 {
                     let mut stickers_list = stickers.lock().unwrap();
-                    stickers_list.push(file_id);
+                    //stickers_list.push(file_id);
                     //info!("{:?}", stickers_list);
                 }
-                bot.send_message(msg.chat.id, "✅ Стикер добавлен!").await?;
+                bot.send_message(msg.chat.id, "Стикер не добавлен! (Временно отключено)").await?;
             }
 
             //Проверка на сообщения пользователя
