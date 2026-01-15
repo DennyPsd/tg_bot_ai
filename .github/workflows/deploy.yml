@@ -54,7 +54,7 @@ jobs:
 
       - name: Build release binary
         run: |        
-          cargo build --release --locked
+          cargo build --release
 
       - name: Check binary
         run: |
