@@ -37,10 +37,13 @@ type UserCards = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 async fn main() {
     //Инициализация либы логирования
     tracing_subscriber::fmt::init();
+    rustls::crypto::ring::default_provider()
+    .install_default()
+    .expect("Failed to install ring crypto provider");
 
     //Либа для подтяжки данных из файла .env
-    //dotenvy::dotenv().ok();
-    let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
+    dotenvy::dotenv().ok();
+    let bot_token = env::var("TG_TOKEN_TEST").expect("Токен бота не найден");
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
