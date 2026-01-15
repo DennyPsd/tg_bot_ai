@@ -84,7 +84,7 @@ jobs:
           scp -P ${{ env.VPS_PORT || 22 }} -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             target/release/${{ env.APP_NAME }} \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}/app
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}
 
 
       - name: Restart service on VPS
