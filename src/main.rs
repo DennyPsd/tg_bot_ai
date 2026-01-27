@@ -1,3 +1,7 @@
+// TODO: БД с id чатами пользователей с привязкой по почте
+// Запуск бота с сопровождением сообщения о запуске всем пользователям. Возможно и такая же остановка.
+// Возможность выбора модели для генерации КН
+// Подписка и рассылка на генерацию КН раз в месяц (2-3 число)
 use std::env;
 use std::sync::{Arc, Mutex};
 use teloxide::prelude::*;
@@ -9,6 +13,9 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
+use rusqlite::{Connection, Result};
+
+const VERSION: &str = "0.2.1";
 
 //Два промта. Надо будет переместить их
 const PROMPT_OFFICE: &str = "Сгенерируй текст для карты наблюдения работника, \
@@ -33,13 +40,40 @@ const PROMPT_ZAVOD: &str = "Сгенерируй текст для карты н
 type UserEmails = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 type UserCards = Arc<Mutex<std::collections::HashMap<u64, String>>>;
 
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     //Инициализация либы логирования
     tracing_subscriber::fmt::init();
     rustls::crypto::ring::default_provider()
     .install_default()
     .expect("Failed to install ring crypto provider");
+
+    // Открываем или создаем базу данных в текущей директории
+    let conn = Connection::open("users_mail.db")?;
+    let conn = Arc::new(Mutex::new(conn));
+    conn.lock().unwrap().execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)", [])?;
+    println!("БД поднята!");
+
+    // Загружаем почты пользователей из БД в память
+let mut loaded_emails = std::collections::HashMap::new();
+{
+    let conn_guard = conn.lock().unwrap();
+    conn_guard.execute(
+        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT NOT NULL)",
+        [],
+    )?;
+    let mut stmt = conn_guard.prepare("SELECT id, email FROM users")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (id, email) = row?;
+        // Telegram user IDs are positive, so casting i64 → u64 is safe
+        loaded_emails.insert(id as u64, email);
+    }
+}
+println!("Загружено {} пользователей", loaded_emails.len());
 
     //Либа для подтяжки данных из файла .env
     dotenvy::dotenv().ok();
@@ -48,44 +82,23 @@ async fn main() {
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
 
-    //Стандартный набор стикеров
-    let stickers = Arc::new(Mutex::new(Vec::<String>::new()));
-    {
-        let mut stickers = stickers.lock().unwrap();
-        stickers.push("CAACAgIAAxkBAAE8ch5o7fs9-aicqE8g3laBhd-LbSmXzQACXXgAAojD8Uhh82UePK7UITYE".to_string(),);
-        stickers.push("CAACAgIAAxkBAAE8cjFo7f0FLdiniZp3oPpOrIPsyvKY2QACaH8AAsIQkUgoZozF4ua9yTYE".to_string(),);
-        stickers.push("CAACAgIAAxkBAAE8cjZo7f0gckT1uosS4f1Q8dUU1baw1wAClncAAvy-kEhE7Nf1NE4HtjYE".to_string(),);
-        stickers.push("CAACAgIAAxkBAAE8cjxo7f1RjGXNQ0EgeyeMZsR7AtyI3QAC8HEAAv4ikEgGN5siLIeNaTYE".to_string(),);
-        stickers.push("CAACAgIAAxkBAAE8cj5o7f2OcHucJKBF1xAAAYzK4fDZLgMAAkCFAALFhZFI4xH8yB0MQFg2BA".to_string(),);
-    }
-    let user_emails: UserEmails = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let user_emails: UserEmails = Arc::new(Mutex::new(loaded_emails));
     let user_cards: UserCards = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
 
     //Инициализация бота и переменных
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
         let ai_token = ai_token.clone();
-        let stickers = Arc::clone(&stickers);
         let user_emails = Arc::clone(&user_emails);
         let user_cards = Arc::clone(&user_cards);
+        let conn = Arc::clone(&conn);
 
         async move {
-            //Проверка на отправку стикера пользователем и добавление в вектор.
-            if let Some(sticker) = msg.sticker() {
-                let file_id = sticker.file.id.to_string();
-                {
-                    let mut stickers_list = stickers.lock().unwrap();
-                    //stickers_list.push(file_id);
-                    //info!("{:?}", stickers_list);
-                }
-                bot.send_message(msg.chat.id, "Стикер не добавлен! (Временно отключено)").await?;
-            }
-
             //Проверка на сообщения пользователя
             if let Some(text) = msg.text() {
                 match text.to_lowercase().as_str() {
                     "/casino" => {
-                        bot.send_message(msg.chat.id, "Если выпадет - то ты проиграл")
+                        bot.send_message(msg.chat.id, "Казино вредит вашему кошельку")
                             .await?;
                         bot.send_dice(msg.chat.id)
                             .emoji(teloxide::types::DiceEmoji::SlotMachine)
@@ -109,43 +122,25 @@ async fn main() {
                             .emoji(teloxide::types::DiceEmoji::Dice)
                             .await?;
                     }
-                    "/sticker" => {
-                        let sticker_to_send = {
-                            let list = stickers.lock().unwrap();
-                            if list.is_empty() {
-                                None
-                            } else {
-                                let idx = rand::random_range(0..list.len());
-                                Some(list[idx].clone())
-                            }
-                        };
-
-                        if let Some(sticker_id) = sticker_to_send {
-                            bot.send_sticker(
-                                msg.chat.id,
-                                teloxide::types::InputFile::file_id(sticker_id.clone().into()),
-                            )
-                            .await?;
-                        }
-                    }
                     "/help" | "/start" => {
                         bot.send_message(
                             msg.chat.id,
                             "Краткая инструкция: \n\
-                            Бота можно использовать для обращения к AI (но пока в рамках одного сообщения)\n\
-                            Для этого просто напиши любой текст! \n\
-                            \n\
-                            Также есть определенные команды: \n\
+                            Бот создан для генерации текста для Карт Наблюдения (КН) \n\
+                            Для этого есть команды: \n\
                             /genoffice - Для генерации текста для КН (работа в офисе) \n\
-                            /genzavod - Для генерации текста для КН (работа на заводе) \n\
-                            /msg - Отправить карту наблюдения на почту \n\
+                            /genzavod - Для генерации текста для КН (работа на заводе) \n\n\
+                            Бот может отправить сгенерированную КН на вашу почту: \n\
+                            /msg - Отправить КН на почту \n\
                             /setmail - Установить почту для отправки карты наблюдения \n\n\
                             Развлекательные функции: \n\
                             /casino - Для прокрутки казино \n\
                             /darts - Для броска дротика \n\
-                            /dice - Для броска кубика \n\
-                            /sticker - Для отправки рандомного стикера \n\
-                            Или можешь прислать свой стикер и я его запомню",
+                            /dice - Для броска кубика \n\n\n\
+                            *BETA* \n\
+                            Также бота можно использовать для обращения к AI (но пока в рамках одного сообщения)\n\
+                            Для этого просто напиши любой текст! \n\n\
+                            Бот находится в стадии разработки, сильно его не ругайте",
                         )
                         .await?;
                     }
@@ -153,18 +148,25 @@ async fn main() {
                         bot.send_message(msg.chat.id, "Генерирую текст для офисника через AI...").await?;
                         match generate_kn(&ai_token, PROMPT_OFFICE.to_string()).await {
                             Ok(response) => {
-
-                                let user_id = msg.from.as_ref().unwrap().id.0;
+                                let user_id = msg.from.as_ref()
+                                    .expect("Отсутствует информация о пользователе")
+                                    .id.0;
+                                
+                                // Сохраняем сгенерированную карту
                                 {
                                     let mut cards = user_cards.lock().unwrap();
                                     cards.insert(user_id, response.clone());
                                 }
 
-                                //let button = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback("Отправить на почту", "send_now"),]]);
-                                //bot.send_message(msg.chat.id, response).reply_markup(button).await?;
                                 bot.send_message(msg.chat.id, response).await?;
-                                bot.send_message(msg.chat.id, "Отправить эту карту на почту \n/msg").await?;
-
+                                //bot.send_message(msg.chat.id, "Отправить эту карту на почту \n/msg").await?;
+                                
+                                // Выводим почту пользователя, если она установлена
+                                if let Some(email) = get_user_email(&user_emails, user_id) {
+                                    bot.send_message(msg.chat.id, format!("Отправить эту КН на почту {} ? \n Введите /msg", email)).await?;
+                                } else {
+                                    bot.send_message(msg.chat.id, "Укажите почту для отправки этой КН \n/setmail").await?;
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
@@ -178,16 +180,23 @@ async fn main() {
                             .await?;
                         match generate_kn(&ai_token, PROMPT_ZAVOD.to_string()).await {
                             Ok(response) => {
-                                 let user_id = msg.from.as_ref().unwrap().id.0;
+                                let user_id = msg.from.as_ref()
+                                    .expect("Отсутствует информация о пользователе")
+                                    .id.0;
+                                
+                                // Сохраняем сгенерированную карту
                                 {
                                     let mut cards = user_cards.lock().unwrap();
                                     cards.insert(user_id, response.clone());
                                 }
 
-                                //let button = InlineKeyboardMarkup::new([[InlineKeyboardButton::callback("Отправить на почту", "send_now"),]]);
-                                //bot.send_message(msg.chat.id, response).reply_markup(button).await?;
                                 bot.send_message(msg.chat.id, response).await?;
-                                bot.send_message(msg.chat.id, "Отправить эту карту на почту \n/msg").await?;
+                               // Выводим почту пользователя, если она установлена
+                                if let Some(email) = get_user_email(&user_emails, user_id) {
+                                    bot.send_message(msg.chat.id, format!("Отправить эту КН на почту {} ? \n Введите /msg", email)).await?;
+                                } else {
+                                    bot.send_message(msg.chat.id, "Укажите почту для отправки этой КН \n/setmail").await?;
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("Ошибка AI: {}", e);
@@ -228,6 +237,15 @@ async fn main() {
                             emails.insert(user_id, email.clone());
                         }
                         
+                        match conn.lock().unwrap().execute("INSERT OR REPLACE INTO users (id, email) values (?1, ?2)",&[&user_id.to_string(), &email]) {
+                            Ok(_) => {
+                                tracing::info!("Записана почта {} для чата {}", email, user_id);
+                            }
+                            Err(e) => {
+                                tracing::error!("Ошибка БД: {}", e);
+                            }
+                        };
+
                         bot.send_message(msg.chat.id, format!("Почта {} успешно сохранена!", email)).await?;
                     }
 
@@ -238,6 +256,17 @@ async fn main() {
                             emails.insert(user_id, "waiting".to_string());
                         }
                         bot.send_message(msg.chat.id, "Напиши почту:").await?;
+                    }
+                    "/shutdown" => {
+                        let user_id = msg.from.as_ref().unwrap().id.0;
+                        if user_id == 465320725 {
+                        bot.send_message(msg.chat.id, "Бот выключен!").await?;
+                        use std::process::exit;
+                        exit(0);
+                        };
+                    }
+                    "/version" => {
+                        bot.send_message(msg.chat.id, format!("Версия бота: {}", VERSION)).await?;
                     }
 
                     _ => {
@@ -271,6 +300,7 @@ async fn main() {
         }
     })
     .await;
+Ok(())
 }
 
 //Функция обращения к AI по API
@@ -357,4 +387,10 @@ async fn send_mail(bot: Bot, user_emails: UserEmails, msg: Message, card_text: S
     }
     
     Ok(())
+}
+
+/// Возвращает почту пользователя, если она установлена и не является placeholder "waiting"
+fn get_user_email(user_emails: &UserEmails, user_id: u64) -> Option<String> {
+    let emails = user_emails.lock().unwrap();
+    emails.get(&user_id).filter(|e| *e != "waiting").cloned()
 }
