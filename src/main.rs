@@ -13,9 +13,13 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, Result, OptionalExtension};
+use chrono::prelude::*;
 
-const VERSION: &str = "0.2.1";
+
+const VERSION: &str = "0.3.0";
+
+
 
 //Два промта. Надо будет переместить их
 const PROMPT_OFFICE: &str = "Сгенерируй текст для карты наблюдения работника, \
@@ -52,7 +56,22 @@ async fn main() -> Result<()> {
     // Открываем или создаем базу данных в текущей директории
     let conn = Connection::open("users_mail.db")?;
     let conn = Arc::new(Mutex::new(conn));
-    conn.lock().unwrap().execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)", [])?;
+    
+    // Создаем таблицы
+    {
+        let conn_guard = conn.lock().unwrap();
+        conn_guard.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT)", [])?;
+        conn_guard.execute(
+            "CREATE TABLE IF NOT EXISTS subscriptions (
+                user_id INTEGER PRIMARY KEY,
+                email TEXT NOT NULL,
+                subscribed_at TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            )",
+            [],
+        )?;
+    }
+   
     println!("БД поднята!");
 
     // Загружаем почты пользователей из БД в память
@@ -85,6 +104,26 @@ println!("Загружено {} пользователей", loaded_emails.len()
     let user_emails: UserEmails = Arc::new(Mutex::new(loaded_emails));
     let user_cards: UserCards = Arc::new(Mutex::new(std::collections::HashMap::new()));
 
+    // Проверяем, сегодня ли 2-е число — тогда отправляем рассылку
+let now = Utc::now();
+
+if now.day() == 12 {
+    tracing::info!("Сегодня 2-е число — запускаем ежемесячную рассылку");
+    let conn_for_newsletter = Arc::clone(&conn);
+    let ai_token_for_newsletter = ai_token.clone();
+    let user_emails_for_newsletter = Arc::clone(&user_emails);
+
+    // Запускаем рассылку (без spawn, чтобы не блокировать старт бота)
+    if let Err(e) = send_monthly_newsletter(
+        &conn_for_newsletter,
+        &ai_token_for_newsletter,
+        &user_emails_for_newsletter,
+    ).await {
+        tracing::error!("Ошибка рассылки: {}", e);
+    } else {
+        tracing::info!("Рассылка успешно отправлена");
+    }
+}
 
     //Инициализация бота и переменных
     teloxide::repl(bot, move |bot: Bot, msg: Message| {
@@ -133,6 +172,10 @@ println!("Загружено {} пользователей", loaded_emails.len()
                             Бот может отправить сгенерированную КН на вашу почту: \n\
                             /msg - Отправить КН на почту \n\
                             /setmail - Установить почту для отправки карты наблюдения \n\n\
+                            Ежемесячная рассылка: \n\
+                            /subscribe - Подписаться на рассылку КН (2-го числа каждого месяца) \n\
+                            /unsubscribe - Отписаться от рассылки \n\
+                            /subscription_status - Проверить статус подписки \n\n\
                             Развлекательные функции: \n\
                             /casino - Для прокрутки казино \n\
                             /darts - Для броска дротика \n\
@@ -268,6 +311,102 @@ println!("Загружено {} пользователей", loaded_emails.len()
                     "/version" => {
                         bot.send_message(msg.chat.id, format!("Версия бота: {}", VERSION)).await?;
                     }
+                    "/subscribe" => {
+                        // Подписка на рассылку КН
+                        let user_id = msg.from.as_ref().unwrap().id.0;
+                        
+                        // Проверяем, установлена ли почта
+                        if let Some(email) = get_user_email(&user_emails, user_id) {
+                            match set_subscription(&conn, user_id, &email, true).await {
+                                Ok(true) => {
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "✅ Вы успешно подписались на рассылку карт наблюдения!\n\
+                                         📅 Рассылка будет производиться 2-го числа каждого месяца.",
+                                    ).await?;
+                                }
+                                Ok(false) => {
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Вы уже подписаны на рассылку.",
+                                    ).await?;
+                                }
+                                Err(e) => {
+                                    tracing::error!("Ошибка БД при подписке: {}", e);
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        "Ошибка при подписке. Попробуйте позже.",
+                                    ).await?;
+                                }
+                            }
+                        } else {
+                            bot.send_message(
+                                msg.chat.id,
+                                "Сначала укажите почту командой /setmail",
+                            ).await?;
+                        }
+                    }
+                    "/unsubscribe" => {
+                        // Отписка от рассылки КН
+                        let user_id = msg.from.as_ref().unwrap().id.0;
+                        
+                        match set_subscription(&conn, user_id, "", false).await {
+                            Ok(true) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "Вы отписались от рассылки карт наблюдения.",
+                                ).await?;
+                            }
+                            Ok(false) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "Вы не были подписаны на рассылку.",
+                                ).await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("Ошибка БД при отписке: {}", e);
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "Ошибка при отписке. Попробуйте позже.",
+                                ).await?;
+                            }
+                        }
+                    }
+                    "/subscription_status" => {
+                        // Проверка статуса подписки
+                        let user_id = msg.from.as_ref().unwrap().id.0;
+                        
+                        match get_subscription_status(&conn, user_id).await {
+                            Ok(Some((email, subscribed_at))) => {
+                                let formatted_date = subscribed_at.format("%d.%m.%Y %H:%M").to_string();
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!(
+                                        "📋 Статус подписки:\n\
+                                         ✅ Подписан на рассылку\n\
+                                         📧 Почта: {}\n\
+                                         📅 Подписан с: {}",
+                                        email,
+                                        formatted_date
+                                    ),
+                                ).await?;
+                            }
+                            Ok(None) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "Вы не подписаны на рассылку.\n\
+                                     Для подписки используйте /subscribe",
+                                ).await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("Ошибка БД при проверке статуса: {}", e);
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "Ошибка при проверке статуса.",
+                                ).await?;
+                            }
+                        }
+                    }
 
                     _ => {
                         bot.send_message(
@@ -393,4 +532,129 @@ async fn send_mail(bot: Bot, user_emails: UserEmails, msg: Message, card_text: S
 fn get_user_email(user_emails: &UserEmails, user_id: u64) -> Option<String> {
     let emails = user_emails.lock().unwrap();
     emails.get(&user_id).filter(|e| *e != "waiting").cloned()
+}
+
+// Устанавливает статус подписки пользователя
+// Возвращает Ok(true) если подписка была изменена, Ok(false) если статус уже был таким
+async fn set_subscription(
+    conn: &Arc<Mutex<Connection>>,
+    user_id: u64,
+    email: &str,
+    is_active: bool,
+) -> Result<bool, rusqlite::Error> {
+    let conn_guard = conn.lock().unwrap();
+    
+    // Проверяем текущий статус
+    let current_status: Option<i32> = conn_guard.query_row(
+        "SELECT is_active FROM subscriptions WHERE user_id = ?1",
+        [user_id as i64],
+        |row| row.get(0),
+    ).ok();
+    
+    // Если статус уже такой - ничего не делаем
+    if current_status == Some(if is_active { 1 } else { 0 }) {
+        return Ok(false);
+    }
+    
+    // Обновляем или создаем запись
+    conn_guard.execute(
+        "INSERT OR REPLACE INTO subscriptions (user_id, email, subscribed_at, is_active)
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            user_id as i64,
+            email,
+            chrono::Utc::now().to_rfc3339(),
+            if is_active { 1 } else { 0 }
+        ],
+    )?;
+    
+    Ok(true)
+}
+
+/// Получает статус подписки пользователя
+async fn get_subscription_status(
+    conn: &Arc<Mutex<Connection>>,
+    user_id: u64,
+) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, rusqlite::Error> {
+    let conn_guard = conn.lock().unwrap();
+    
+    let result: Result<(String, String), rusqlite::Error> = conn_guard.query_row(
+        "SELECT email, subscribed_at FROM subscriptions WHERE user_id = ?1 AND is_active = 1",
+        [user_id as i64],
+        |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        },
+    );
+    
+    match result {
+        Ok((email, subscribed_at)) => {
+            let parsed_date = chrono::DateTime::parse_from_rfc3339(&subscribed_at)
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            Ok(Some((email, parsed_date)))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Функция для отправки рассылки (вызывается по расписанию 2-го числа каждого месяца)
+async fn send_monthly_newsletter(
+    conn: &Arc<Mutex<Connection>>,
+    ai_token: &str,
+    user_emails: &UserEmails,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let conn_guard = conn.lock().unwrap();
+    
+    // Получаем всех активных подписчиков
+    let mut stmt = conn_guard.prepare(
+        "SELECT user_id, email FROM subscriptions WHERE is_active = 1"
+    )?;
+    
+    let subscribers: Vec<(u64, String)> = stmt.query_map([], |row| {
+        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, String>(1)?))
+    })?.filter_map(|row| row.ok()).collect();
+    
+    drop(stmt);
+    drop(conn_guard);
+    
+    // Генерируем и отправляем КН каждому подписчику
+    for (user_id, email) in subscribers {
+        // Генерируем КН (чередуем между офисом и заводом)
+        let prompt = if user_id % 2 == 0 {
+            PROMPT_OFFICE.to_string()
+        } else {
+            PROMPT_ZAVOD.to_string()
+        };
+        
+        match generate_kn(ai_token, PROMPT_OFFICE.to_string()).await {
+            Ok(kn_text) => {
+                // Отправляем на почту
+                let pass_gm = env::var("PASS_GM")?;
+                let message = MessageBuilder::new()
+                    .from(("Bot AI", "cardaibot@gmail.com"))
+                    .to(vec![("User", email.as_str())])
+                    .subject("Карта наблюдения - ежемесячная рассылка")
+                    .text_body(format!("{} \n\n\nBy tgbot: @ez_card_ai_bot", kn_text));
+                
+                SmtpClientBuilder::new("smtp.gmail.com", 587)
+                    .implicit_tls(false)
+                    .credentials(("cardaibot@gmail.com", pass_gm.as_str()))
+                    .connect()
+                    .await?
+                    .send(message)
+                    .await?;
+                
+                tracing::info!("Рассылка отправлена пользователю {} на почту {}", user_id, email);
+            }
+            Err(e) => {
+                tracing::error!("Ошибка генерации КН для пользователя {}: {}", user_id, e);
+            }
+        }
+        
+        // Небольшая пауза между отправками, чтобы не спамить SMTP
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+    
+    Ok(())
 }
