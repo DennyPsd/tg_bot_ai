@@ -26,7 +26,7 @@ env:
   MODEL: ${{ secrets.MODEL }}
   PASS_GM: ${{ secrets.PASS_GM }}
   TG_TOKEN: ${{ secrets.TG_TOKEN }}
-  TARGET_DIR: /root/deployment/bot_tg  
+  TARGET_DIR: /home/ephuneral/deployment/denny  
 
 jobs:
   deploy:
