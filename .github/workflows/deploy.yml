@@ -26,8 +26,8 @@ env:
   MODEL: ${{ secrets.MODEL }}
   PASS_GM: ${{ secrets.PASS_GM }}
   TG_TOKEN: ${{ secrets.TG_TOKEN }}
-  TARGET_DIR: /home/ephuneral/deployment/denny  
-
+  TARGET_DIR: ${{ secrets.TARGET_DIR }}
+  
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -92,6 +92,6 @@ jobs:
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
             'sudo systemctl stop ${{ env.APP_NAME }}.service || true'
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            'sudo cp ${{ env.TARGET_DIR }}/app /usr/local/bin/${{ env.APP_NAME }}'
+            'sudo cp ${{ env.TARGET_DIR }}/${{ env.APP_NAME }} /usr/local/bin/${{ env.APP_NAME }}'
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
             'sudo systemctl start ${{ env.APP_NAME }}.service'
