@@ -69,6 +69,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
+      - name: Stop service on VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            'sudo systemctl stop ${{ env.APP_NAME }}.service || true'
+
       - name: Create .env file on VPS
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
@@ -87,10 +92,8 @@ jobs:
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:${{ env.TARGET_DIR }}
 
 
-      - name: Restart service on VPS
+      - name: Start service on VPS
         run: |
-          ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            'sudo systemctl stop ${{ env.APP_NAME }}.service || true'
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
             'sudo cp ${{ env.TARGET_DIR }}/${{ env.APP_NAME }} /usr/local/bin/${{ env.APP_NAME }}'
           ssh -o StrictHostKeyChecking=no -p ${{ env.VPS_PORT || 22 }} ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
