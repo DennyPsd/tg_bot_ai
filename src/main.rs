@@ -13,11 +13,11 @@ use tracing_subscriber;
 use mail_send::SmtpClientBuilder;
 use mail_send::mail_builder::MessageBuilder;
 
-use rusqlite::{Connection, Result, OptionalExtension};
+use rusqlite::{Connection, Result};
 use chrono::prelude::*;
 
 
-const VERSION: &str = "0.3.0";
+const VERSION: &str = "0.3.2";
 
 
 
@@ -96,7 +96,7 @@ println!("Загружено {} пользователей", loaded_emails.len()
 
     //Либа для подтяжки данных из файла .env
     dotenvy::dotenv().ok();
-    let bot_token = env::var("TG_TOKEN").expect("Токен бота не найден");
+    let bot_token = env::var("TG_TOKEN_TEST").expect("Токен бота не найден");
     let ai_token = env::var("API_TOKEN").expect("Токен AI не найден");
     info!("Токен AI модели загружен");
     let bot = Bot::new(bot_token);
@@ -107,7 +107,7 @@ println!("Загружено {} пользователей", loaded_emails.len()
     // Проверяем, сегодня ли 2-е число — тогда отправляем рассылку
 let now = Utc::now();
 
-if now.day() == 12 {
+if now.day() == 2 {
     tracing::info!("Сегодня 2-е число — запускаем ежемесячную рассылку");
     let conn_for_newsletter = Arc::clone(&conn);
     let ai_token_for_newsletter = ai_token.clone();
@@ -407,6 +407,46 @@ if now.day() == 12 {
                             }
                         }
                     }
+                    "/test" => {
+                        // Принудительная рассылка всем подписчикам
+                        let user_id = msg.from.as_ref().unwrap().id.0;
+                        
+                        // Проверяем, что это админ (id 465320725)
+                        if user_id == 465320725 {
+                            bot.send_message(msg.chat.id, "🚀 Запускаю тестовую рассылку в фоне...")
+                                .await?;
+                            
+                            // Получаем список подписчиков синхронно (до spawn)
+                            let subscribers: Vec<(u64, String)> = {
+                                let conn_guard = conn.lock().unwrap();
+                                let mut stmt = conn_guard.prepare(
+                                    "SELECT user_id, email FROM subscriptions WHERE is_active = 1"
+                                ).unwrap();
+                                stmt.query_map([], |row| {
+                                    Ok((row.get::<_, i64>(0)? as u64, row.get::<_, String>(1)?))
+                                }).unwrap().filter_map(|row| row.ok()).collect()
+                            };
+                            
+                            if subscribers.is_empty() {
+                                bot.send_message(msg.chat.id, "Нет активных подписчиков для рассылки")
+                                    .await?;
+                            } else {
+                                // Запускаем рассылку в фоне с готовыми данными
+                                let ai_token_clone = ai_token.clone();
+                                let chat_id = msg.chat.id;
+                                let bot_clone = bot.clone();
+                                
+                                tokio::spawn(async move {
+                                    send_newsletter_to_subscribers(subscribers, &ai_token_clone, &bot_clone, chat_id).await;
+                                });
+                            }
+                        } else {
+                            bot.send_message(
+                                msg.chat.id,
+                                "⛔ У вас нет доступа к этой команде.",
+                            ).await?;
+                        }
+                    }
 
                     _ => {
                         bot.send_message(
@@ -657,4 +697,77 @@ async fn send_monthly_newsletter(
     }
     
     Ok(())
+}
+
+/// Функция для рассылки с готовым списком подписчиков (используется для /test)
+async fn send_newsletter_to_subscribers(
+    subscribers: Vec<(u64, String)>,
+    ai_token: &str,
+    bot: &Bot,
+    chat_id: ChatId,
+) {
+    let mut sent_count = 0;
+    
+    for (user_id, email) in &subscribers {
+        // Генерируем КН (чередуем между офисом и заводом)
+        let prompt = if user_id % 2 == 0 {
+            PROMPT_OFFICE.to_string()
+        } else {
+            PROMPT_ZAVOD.to_string()
+        };
+        
+        match generate_kn(ai_token, prompt).await {
+            Ok(kn_text) => {
+                // Отправляем на почту
+                let pass_gm = match env::var("PASS_GM") {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::error!("Ошибка получения пароля: {}", e);
+                        let _ = bot.send_message(chat_id, "Ошибка конфигурации SMTP").await;
+                        return;
+                    }
+                };
+                
+                let message = MessageBuilder::new()
+                    .from(("Bot AI", "cardaibot@gmail.com"))
+                    .to(vec![("User", email.as_str())])
+                    .subject("Карта наблюдения - тестовая рассылка")
+                    .text_body(format!("{} \n\n\nBy tgbot: @ez_card_ai_bot", kn_text));
+                
+                if let Err(e) = SmtpClientBuilder::new("smtp.gmail.com", 587)
+                    .implicit_tls(false)
+                    .credentials(("cardaibot@gmail.com", pass_gm.as_str()))
+                    .connect()
+                    .await
+                {
+                    tracing::error!("Ошибка подключения SMTP: {}", e);
+                    continue;
+                }
+                
+                if let Err(e) = SmtpClientBuilder::new("smtp.gmail.com", 587)
+                    .implicit_tls(false)
+                    .credentials(("cardaibot@gmail.com", pass_gm.as_str()))
+                    .connect()
+                    .await
+                    .unwrap()
+                    .send(message)
+                    .await
+                {
+                    tracing::error!("Ошибка отправки письма: {}", e);
+                    continue;
+                }
+                
+                tracing::info!("Тестовая рассылка отправлена пользователю {} на почту {}", user_id, email);
+                sent_count += 1;
+            }
+            Err(e) => {
+                tracing::error!("Ошибка генерации КН для пользователя {}: {}", user_id, e);
+            }
+        }
+        
+        // Небольшая пауза между отправками, чтобы не спамить SMTP
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+    
+    let _ = bot.send_message(chat_id, format!("✅ Тестовая рассылка завершена! Отправлено {} писем.", sent_count)).await;
 }
